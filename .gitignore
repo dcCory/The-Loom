@@ -1,0 +1,31 @@
+# Python virtual environment
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Node.js dependencies
+node_modules/
+dist/
+build/
+
+# Environment variables
+.env
+.flaskenv
+
+# Large AI model files (DO NOT COMMIT THESE TO GIT DIRECTLY due to size)
+models/
+data/raw/ # Raw data might be too large; manage separately
+
+# Operating system files
+.DS_Store # macOS
+Thumbs.db # Windows
+
+# IDE files
+.vscode/ # VS Code specific settings if you don't want to share
+.idea/ # IntelliJ/PyCharm
+
+# Logs
+*.log
