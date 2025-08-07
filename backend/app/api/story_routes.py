@@ -35,7 +35,8 @@ async def generate_story_text(request: GenerateTextRequest):
         top_k=request.top_k,
         top_p=request.top_p,
         model_type="primary", # Assuming primary model for main generation
-        selected_character_ids=request.selected_character_ids # Pass character IDs
+        selected_character_ids=request.selected_character_ids, # Pass character IDs
+        selected_plot_point_ids=request.selected_plot_point_ids # Pass plot point IDs
     )
     if "Error:" in generated_content:
         raise HTTPException(status_code=500, detail=generated_content)

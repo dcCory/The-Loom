@@ -8,6 +8,8 @@ import uvicorn
 #import API routers
 from app.api import story_routes
 from app.api import character_routes
+from app.api import plot_routes
+from app.api import writer_block_routes
 
 #initialize FastAPI app
 app = FastAPI(
@@ -35,6 +37,8 @@ app.add_middleware(
 # API routers
 app.include_router(story_routes.router, prefix="/api/story", tags=["Story Generation"])
 app.include_router(character_routes.router, prefix="/api/character", tags=["Character Management"])
+app.include_router(plot_routes.router, prefix="/api/plot", tags=["Plot Point Management"])
+app.include_router(writer_block_routes.router, prefix="/api/writer-block", tags=["Writer's Block Buster Tools"])
 
 #Root endpoint for testing
 @app.get("/")
