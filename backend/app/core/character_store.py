@@ -1,15 +1,21 @@
 from typing import Dict, List, Optional
 from uuid import UUID
 from app.models.schemas import Character, CharacterCreate, CharacterUpdate
+from app.core import persistence
 
 # In-memory store for characters.
 # Key: Character UUID, Value: Character object
-_characters: Dict[UUID, Character] = {}
+_characters: Dict[UUID, Character] = persistence.load_characters()
+print(f"[DEBUG] character_store: Initial load, _characters has {len(_characters)} entries.") # DEBUG PRINT
 
 def create_character(character_data: CharacterCreate) -> Character:
+    print(f"[DEBUG] character_store: Before creating {character_data.name}, _characters has {len(_characters)} entries.") # DEBUG PRINT
     """Creates a new character and adds it to the store."""
     new_character = Character(**character_data.model_dump())
     _characters[new_character.id] = new_character
+    print(f"[DEBUG] character_store: After creating {new_character.name}, _characters has {len(_characters)} entries. Saving...") # DEBUG PRINT
+    persistence.save_characters(_characters)
+    print(f"[DEBUG] character_store: Saved characters after creating {new_character.name}.") # DEBUG PRINT
     print(f"Created character: {new_character.name} with ID: {new_character.id}")
     return new_character
 
@@ -19,6 +25,7 @@ def get_character(character_id: UUID) -> Optional[Character]:
 
 def get_all_characters() -> List[Character]:
     """Retrieves all characters in the store."""
+    print(f"[DEBUG] character_store: get_all_characters called, returning {len(_characters)} entries.") # DEBUG PRINT
     return list(_characters.values())
 
 def update_character(character_id: UUID, update_data: CharacterUpdate) -> Optional[Character]:
@@ -33,38 +40,17 @@ def update_character(character_id: UUID, update_data: CharacterUpdate) -> Option
         setattr(character, key, value)
     
     _characters[character_id] = character # Ensure updated object is stored
+    persistence.save_characters(_characters) #Saves after updating
     print(f"Updated character with ID: {character_id}")
+    print(f"[DEBUG] character_store: Saved characters after updating {character_id}.") # DEBUG PRINT
     return character
 
 def delete_character(character_id: UUID) -> bool:
     """Deletes a character by their ID."""
     if character_id in _characters:
         del _characters[character_id]
+        persistence.save_characters(_characters) # Save after deletion
         print(f"Deleted character with ID: {character_id}")
+        print(f"[DEBUG] character_store: Saved characters after deleting {character_id}.") # DEBUG PRINT
         return True
     return False
-
-# --- JSON persistence (will work on later) ---
-# To make this persistent, you would add load/save functions:
-# import json
-# import os
-
-# FILE_PATH = "backend/data/characters.json" # Adjust path as needed
-
-# def _load_characters_from_file():
-#     global _characters
-#     if os.path.exists(FILE_PATH):
-#         with open(FILE_PATH, 'r') as f:
-#             data = json.load(f)
-#             _characters = {UUID(k): Character(**v) for k, v in data.items()}
-#     else:
-#         _characters = {}
-
-# def _save_characters_to_file():
-#     with open(FILE_PATH, 'w') as f:
-#         # Convert UUID keys to strings for JSON serialization
-#         json_serializable_data = {str(k): v.model_dump() for k, v in _characters.items()}
-#         json.dump(json_serializable_data, f, indent=4)
-
-# # Call this function once when the app starts
-# # _load_characters_from_file()

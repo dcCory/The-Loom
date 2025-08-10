@@ -1,0 +1,20 @@
+{
+    "0cb8cf2c-8579-4cf0-a7f1-79d92f2476e3": {
+        "name": "Elara the Sorceress",
+        "description": "A powerful and enigmatic sorceress with a mischievous glint in her eye. She wields ancient magic and has a fondness for riddles.",
+        "traits": "Cunning, Playful, Mysterious, Powerful",
+        "motivations": "Knowledge, unraveling ancient secrets, personal amusement",
+        "physical_appearance": "Slender, long dark hair, piercing green eyes, often wears flowing robes adorned with arcane symbols",
+        "status": "Alive",
+        "id": "0cb8cf2c-8579-4cf0-a7f1-79d92f2476e3"
+    },
+    "a24fa8a4-8777-47a5-ba42-35961e526185": {
+        "name": "Sir Reginald",
+        "description": "A brave knight, known for his unwavering courage and dedication to justice. He carries a gleaming, enchanted sword and a shield with his noble house's crest.",
+        "traits": "Noble, Loyal, Brave, Steadfast",
+        "motivations": "Justice, protecting the innocent, finding the Dragon's Tear",
+        "physical_appearance": "Tall, muscular build, short brown hair, often wears dented but polished plate armor",
+        "status": "Alive",
+        "id": "a24fa8a4-8777-47a5-ba42-35961e526185"
+    }
+}

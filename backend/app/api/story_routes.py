@@ -1,8 +1,12 @@
 # This file will contain all API endpoints related to story generation.
 
 from fastapi import APIRouter, HTTPException
-from app.models.schemas import GenerateTextRequest, GenerateTextResponse, ModelLoadRequest, ModelLoadResponse
+from app.models.schemas import (
+    GenerateTextRequest, GenerateTextResponse, ModelLoadRequest, ModelLoadResponse,
+    StoryTextRequest, StoryTextResponse
+)
 from app.core.model_manager import load_model, generate_text
+from app.core import persistence
 
 router = APIRouter()
 
@@ -41,3 +45,21 @@ async def generate_story_text(request: GenerateTextRequest):
     if "Error:" in generated_content:
         raise HTTPException(status_code=500, detail=generated_content)
     return {"generated_text": generated_content}
+
+#-- Endpoints for Main Story Text Persistence ---
+
+@router.put("/main_text", response_model=StoryTextResponse)
+async def update_main_story_text(request: StoryTextRequest):
+    """
+    Updates and saves the main story text.
+    """
+    persistence.save_main_story_text(request.text)
+    return {"text": request.text}
+
+@router.get("/main_text", response_model=StoryTextResponse)
+async def get_main_story_text():
+    """
+    Retrieves the current main story text.
+    """
+    text = persistence.load_main_story_text()
+    return {"text": text}
