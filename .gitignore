@@ -7,17 +7,16 @@ __pycache__/
 *.pyd
 
 # Node.js dependencies
-node_modules/
-dist/
-build/
+frontend/node_modules/
+frontend/dist/
+frontend/build/
 
 # Environment variables
 .env
 .flaskenv
 
 # Large AI model files (DO NOT COMMIT THESE TO GIT DIRECTLY due to size)
-models/
-data/raw/ # Raw data might be too large; manage separately
+backend/models/
 
 # Operating system files
 .DS_Store # macOS

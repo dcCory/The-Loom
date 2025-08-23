@@ -1,1 +1,3 @@
-string
+Trudging through the forest, Elara and Sir Reginald came upon a cabin.On one of them, they saw the remains of an old man, dressed in a white tunic. He was dressed in a black tunic, and looked like a boy from the forest. The cabin itself was a small cabin and not much was known of the place. A black man, standing in the middle of the cabin, stood in the middle of the cabin. When he opened his mouth, he said, "Sir Reginald, this is the location of my body. I have found it." He then said, "What should I do then? I hope you will find something, sir?" Reginald replied, "Nothing at all. Go and find my body, and then come and get me. I am certain that you will find something, sir."
+
+The man took Reginald by the hand and made him give him some tea and say, "Sir Reginald, it is my fault for the man, I believe you. I was trying toError during text generation: index out of range in self

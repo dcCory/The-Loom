@@ -1,65 +1,258 @@
 # This file will handle the loading and management of AI models.
 from transformers import AutoTokenizer, AutoModelForCausalLM
-
-# from exllama2 import ExLlamaV2, ExLlamaV2Cache, ExLlamaV2Tokenizer # For ExLlamaV2
 import torch
 import os
+import glob
 
 # This is used for when we handle passing the character data to AI context
-from typing import Optional, List
+from typing import Optional, List, Dict, Union, Literal
 from uuid import UUID
+
+# Import ExLlamaV2 components
+try:
+    from exllamav2 import ExLlamaV2, ExLlamaV2Cache, ExLlamaV2Tokenizer
+    from exllamav2.config import ExLlamaV2Config
+    from exllamav2.model import ExLlamaV2Sampler
+    EXLLAMAV2_AVAILABLE = True
+    print("[DEBUG] ExLlamaV2 is available.")
+except ImportError:
+    EXLLAMAV2_AVAILABLE = False
+    print("[DEBUG] ExLlamaV2 not found. It will not be available for inference.")
+
+# Import llama_cpp components
+try:
+    from llama_cpp import Llama
+    LLAMA_CPP_AVAILABLE = True
+    print("[DEBUG] llama_cpp is available.")
+except ImportError:
+    LLAMA_CPP_AVAILABLE = False
+    print("[DEBUG] llama_cpp not found. It will not be available for inference.")
 
 # Imported character_store and Character schema
 from app.core import character_store
 from app.core import plot_store
-from app.models.schemas import Character, PlotPoint
+from app.models.schemas import Character, PlotPoint, ModelFile
 
 # Placeholder for loaded models
-# This would be more robust in a production ready app (e.g., using a singleton pattern or dependency injection)
-# Global variables will be used for simplicity at the moment.
-_primary_model = None
-_primary_tokenizer = None
-_auxiliary_model = None
-_auxiliary_tokenizer = None
 
-async def load_model(model_id: str, device: str, model_type: str):
+_primary_model: Optional[Union[AutoModelForCausalLM, "ExLlamaV2", "Llama"]] = None
+_primary_tokenizer: Optional[Union[AutoTokenizer, "ExLlamaV2Tokenizer"]] = None
+_primary_inference_library: Optional[str] = None
+
+
+_auxiliary_model: Optional[Union[AutoModelForCausalLM, "ExLlamaV2", "Llama"]] = None
+_auxiliary_tokenizer: Optional[Union[AutoTokenizer, "ExLlamaV2Tokenizer"]] = None # Corrected type hint
+_auxiliary_inference_library: Optional[str] = None
+
+# Defines the directory where local models are stored
+MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "models")
+os.makedirs(MODELS_DIR, exist_ok=True)
+
+# --- Function to discover local model files ---
+async def discover_local_models() -> List[ModelFile]:
     """
-    Loads an AI model and its tokenizer.
-    This is a simplified example. Real-world loading will involve
-    checking model types (e.g., ExLlamaV2, Llama.cpp_,
-    and more robust error handling.
+    Scans the MODELS_DIR for compatible model files and returns a list of ModelFile schemas.
     """
-    global _primary_model, _primary_tokenizer, _auxiliary_model, _auxiliary_tokenizer
+    detected_models: List[ModelFile] = []
+    
+    # Iterates through all items in MODELS_DIR
+    for item_name in os.listdir(MODELS_DIR):
+        full_path = os.path.join(MODELS_DIR, item_name)
+
+        # Checks for ExLlamaV2 directories
+        if os.path.isdir(full_path) and EXLLAMAV2_AVAILABLE:
+            config_path = os.path.join(full_path, "config.json")
+            if os.path.exists(config_path) and (glob.glob(os.path.join(full_path, "*.safetensors")) or glob.glob(os.path.join(full_path, "*.bin"))):
+                try:
+                    with open(config_path, 'r') as f:
+                        config_data = json.load(f)
+                    if "exl2_probed_tensor_info" in config_data:
+                        size_mb = sum(os.path.getsize(os.path.join(full_path, f)) for f in os.listdir(full_path)) / (1024*1024)
+                        detected_models.append(ModelFile(
+                            filename=os.path.basename(full_path),
+                            path=os.path.relpath(full_path, MODELS_DIR),
+                            size_mb=round(size_mb, 2),
+                            compatible_libraries=["exllamav2"],
+                            suggested_device="cuda",
+                            description=f"Quantized model for ExLlamaV2. Size: {round(size_mb, 2)}MB."
+                        ))
+                except Exception as e:
+                    print(f"[DEBUG] Could not parse config for {full_path} as ExLlamaV2: {e}")
+        
+        # Checks for Transformers-compatible local directories
+        if os.path.isdir(full_path):
+            if os.path.exists(os.path.join(full_path, "tokenizer.json")) or os.path.exists(os.path.join(full_path, "tokenizer_config.json")):
+                if not any(m.path == os.path.relpath(full_path, MODELS_DIR) for m in detected_models):
+                    size_mb = sum(os.path.getsize(os.path.join(full_path, f)) for f in os.listdir(full_path)) / (1024*1024)
+                    detected_models.append(ModelFile(
+                        filename=os.path.basename(full_path) + " (HF Local)",
+                        path=os.path.relpath(full_path, MODELS_DIR),
+                        size_mb=round(size_mb, 2),
+                        compatible_libraries=["transformers"],
+                        suggested_device="cpu",
+                        description=f"Local Transformers model directory. Size: {round(size_mb, 2)}MB."
+                    ))
+
+        # Checks for GGUF files (compatible with both llama_cpp and transformers)
+        if os.path.isfile(full_path) and full_path.endswith(".gguf"):
+            size_mb = os.path.getsize(full_path) / (1024*1024)
+            compatible_libs = []
+            if LLAMA_CPP_AVAILABLE:
+                compatible_libs.append("llama_cpp")
+            compatible_libs.append("transformers")
+
+            if compatible_libs:
+                detected_models.append(ModelFile(
+                    filename=os.path.basename(full_path),
+                    path=os.path.relpath(full_path, MODELS_DIR),
+                    size_mb=round(size_mb, 2),
+                    compatible_libraries=compatible_libs,
+                    suggested_device="cpu",
+                    description=f"GGUF model. Size: {round(size_mb, 2)}MB."
+                ))
+
+    if hasattr(torch, 'cuda') or hasattr(torch, 'backends'): # Check if torch is loaded at all
+        detected_models.append(ModelFile(
+            filename="Hugging Face ID (Online)",
+            path="Hugging Face ID",
+            size_mb=0.0,
+            compatible_libraries=["transformers"],
+            suggested_device="cpu", # Default, user can change
+            description="Load a model directly from Hugging Face Model Hub by ID (e.g., 'gpt2')."
+        ))
+
+    return detected_models
+
+async def load_model(
+    model_id: str,
+    device: Literal["cpu", "cuda", "hip"],
+    model_type: Literal["primary", "auxiliary"],
+    inference_library: Literal["transformers", "exllamav2", "llama_cpp"]
+):
+    """
+    Loads an AI model and its tokenizer using the specified inference library.
+    """
+    global _primary_model, _primary_tokenizer, _primary_inference_library
+    global _auxiliary_model, _auxiliary_tokenizer, _auxiliary_inference_library
 
     try:
-        print(f"Attempting to load model '{model_id}' on device '{device}' for type '{model_type}'...")
+        print(f"Attempting to load model '{model_id}' with '{inference_library}' on device '{device}' for type '{model_type}'...")
 
-        # Example for a small Hugging Face model (e.g., 'gpt2')
-        # This will download the model if not cached.
-        tokenizer = AutoTokenizer.from_pretrained(model_id)
-        model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.float16) # Use float16 for efficiency
-
+        model_instance = None
+        tokenizer_instance = None
+        
+        # Determine the actual device to use for PyTorch models
+        actual_device = "cpu"
         if device == "cuda" and torch.cuda.is_available():
-            model.to("cuda")
-            print(f"Model '{model_id}' loaded to CUDA.")
+            actual_device = "cuda"
+            print("[DEBUG] NVIDIA CUDA detected and selected.")
+        elif device == "hip" and torch.backends.hip.is_available():
+            actual_device = "hip"
+            print("[DEBUG] AMD ROCm (HIP) detected and selected.")
         else:
-            model.to("cpu")
-            print(f"Model '{model_id}' loaded to CPU.")
+            if device != "cpu": # Only warn if user explicitly chose GPU but it's not available
+                print(f"[WARNING] Requested device '{device}' not available, falling back to CPU.")
+            actual_device = "cpu"
 
+
+        if inference_library == "transformers":
+            # Transformers can load from a local path (relative to MODELS_DIR) or Hugging Face ID
+            full_model_path = os.path.join(MODELS_DIR, model_id) if model_id != "Hugging Face ID" else model_id
+
+            if model_id != "Hugging Face ID" and not os.path.exists(full_model_path):
+                raise FileNotFoundError(f"Local Transformers model directory not found at {full_model_path}")
+            
+            tokenizer_instance = AutoTokenizer.from_pretrained(full_model_path)
+            model_instance = AutoModelForCausalLM.from_pretrained(full_model_path, torch_dtype=torch.float16)
+            model_instance.to(actual_device) # Move model to the determined device
+            print(f"[DEBUG] Transformers model loaded from {full_model_path} to {actual_device.upper()}.")
+
+        elif inference_library == "exllamav2":
+            if not EXLLAMAV2_AVAILABLE:
+                raise ImportError("ExLlamaV2 is not installed or not available.")
+            if actual_device != "cuda": # ExLlamaV2 strictly requires CUDA
+                raise ValueError("ExLlamaV2 only supports CUDA devices. Please select CUDA.")
+            
+            model_path = os.path.join(MODELS_DIR, model_id)
+            if not os.path.isdir(model_path):
+                raise FileNotFoundError(f"ExLlamaV2 model directory not found at {model_path}")
+
+            config = ExLlamaV2Config()
+            config.model_dir = model_path
+            config.prepare()
+
+            tokenizer_instance = ExLlamaV2Tokenizer(config)
+            model_instance = ExLlamaV2(config)
+            model_instance.load()
+            print(f"[DEBUG] ExLlamaV2 model loaded from {model_path} to CUDA.")
+
+        elif inference_library == "llama_cpp":
+            if not LLAMA_CPP_AVAILABLE:
+                raise ImportError("llama-cpp-python is not installed or not available.")
+            
+            model_path = os.path.join(MODELS_DIR, model_id)
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(f"GGUF model file not found at {model_path}")
+            
+            # MODIFIED: Use actual_device for n_gpu_layers calculation
+            n_gpu_layers = -1 if (actual_device == "cuda" or actual_device == "hip") else 0
+            model_instance = Llama(model_path=model_path, n_gpu_layers=n_gpu_layers, verbose=False)
+            tokenizer_instance = AutoTokenizer.from_pretrained("gpt2") # Llama.cpp doesn't have its own tokenizer object like transformers
+            print(f"[DEBUG] llama.cpp model loaded from {model_path} with n_gpu_layers={n_gpu_layers}.")
+
+        else:
+            raise ValueError(f"Unknown inference library: {inference_library}")
+
+        # Assign loaded model and tokenizer to global variables
         if model_type == "primary":
-            _primary_model = model
-            _primary_tokenizer = tokenizer
+            _primary_model = model_instance
+            _primary_tokenizer = tokenizer_instance
+            _primary_inference_library = inference_library
         elif model_type == "auxiliary":
-            _auxiliary_model = model
-            _auxiliary_tokenizer = tokenizer
+            _auxiliary_model = model_instance
+            _auxiliary_tokenizer = tokenizer_instance
+            _auxiliary_inference_library = inference_library
         else:
             raise ValueError(f"Unknown model type: {model_type}")
 
-        return {"message": f"Model '{model_id}' ({model_type}) loaded successfully!", "status": "success"}
+        return {"message": f"Model '{model_id}' ({model_type}) loaded successfully with {inference_library}!", "status": "success"}
 
     except Exception as e:
-        print(f"Error loading model '{model_id}': {e}")
+        print(f"[ERROR] model_manager: Error loading model '{model_id}': {e}")
         return {"message": f"Failed to load model '{model_id}': {str(e)}", "status": "error"}
+
+async def unload_models():
+    """
+    Unloads all currently loaded primary and auxiliary AI models.
+    """
+    global _primary_model, _primary_tokenizer, _primary_inference_library
+    global _auxiliary_model, _auxiliary_tokenizer, _auxiliary_inference_library
+
+    print("[DEBUG] model_manager: Attempting to unload all models.")
+    
+    if _primary_model is not None:
+        del _primary_model
+        del _primary_tokenizer
+        _primary_model = None
+        _primary_tokenizer = None
+        _primary_inference_library = None
+        if torch.cuda.is_available() or (torch.backends.hip.is_available() if hasattr(torch.backends, 'hip') else False): # Clear GPU cache if applicable
+            torch.cuda.empty_cache()
+        print("[DEBUG] model_manager: Primary model unloaded.")
+    
+    if _auxiliary_model is not None:
+        del _auxiliary_model
+        del _auxiliary_tokenizer
+        _auxiliary_model = None
+        _auxiliary_tokenizer = None
+        _auxiliary_inference_library = None
+        if torch.cuda.is_available() or (torch.backends.hip.is_available() if hasattr(torch.backends, 'hip') else False): # Clear GPU cache if applicable
+            torch.cuda.empty_cache()
+        print("[DEBUG] model_manager: Auxiliary model unloaded.")
+    
+    print("[DEBUG] model_manager: All models unloaded successfully.")
+    return {"message": "All models unloaded successfully!", "status": "success"}
+
 
 async def generate_text(
     prompt: str,
@@ -68,21 +261,28 @@ async def generate_text(
     top_k: int,
     top_p: float,
     model_type: str = "primary",
-    selected_character_ids: Optional[List[UUID]] = None, #Accepts character IDs for passing context to the AI
-    selected_plot_point_ids: Optional[List[UUID]] = None #Accepts plot point IDs for passing context to the AI
+    selected_character_ids: Optional[List[UUID]] = None,
+    selected_plot_point_ids: Optional[List[UUID]] = None
 ) -> str:
     """
-    Generates text using the loaded AI model.
-    This is a simplified example. Real-world generation will involve
-    more sophisticated prompt engineering and context management.
+    Generates text using the loaded AI model, incorporating character and plot point context.
     """
-    global _primary_model, _primary_tokenizer, _auxiliary_model, _auxiliary_tokenizer
+    global _primary_model, _primary_tokenizer, _primary_inference_library
+    global _auxiliary_model, _auxiliary_tokenizer, _auxiliary_inference_library
 
     model = _primary_model if model_type == "primary" else _auxiliary_model
     tokenizer = _primary_tokenizer if model_type == "primary" else _auxiliary_tokenizer
+    inference_library = _primary_inference_library if model_type == "primary" else _auxiliary_inference_library
+
 
     if model is None or tokenizer is None:
         return "Error: AI model not loaded. Please load a model first."
+
+    # Determine the actual device of the loaded model (if applicable)
+    model_device = "cpu" # Default
+    if inference_library == "transformers" and hasattr(model, 'device'):
+        model_device = str(model.device)
+    # ExLlamaV2 models are always on CUDA, llama_cpp handles internally
 
     # Fetches and formats character context for AI
     character_context = ""
@@ -131,32 +331,67 @@ async def generate_text(
             plot_point_context += "\n".join(plot_points_info)
             plot_point_context += "\n-----------------------------------------\n\n"
 
-    # Combines the character context with the main prompt sent to AI
+    # Combine all context with the main prompt
     full_prompt = character_context + plot_point_context + prompt
 
     try:
-        inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-        
-        # Ensure generation parameters are within valid ranges
-        temperature = max(0.01, temperature) # Avoid division by zero or log(0)
-        top_k = max(1, top_k)
-        top_p = max(0.01, min(0.99, top_p)) # Keep top_p between 0.01 and 0.99
+        if inference_library == "transformers":
+            inputs = tokenizer(full_prompt, return_tensors="pt").to(model_device)
+            output_tokens = model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+                do_sample=True,
+                pad_token_id=tokenizer.eos_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+            )
+            generated_text = tokenizer.decode(output_tokens[0], skip_special_tokens=True)
+            
+        elif inference_library == "exllamav2":
+            if not EXLLAMAV2_AVAILABLE:
+                raise RuntimeError("ExLlamaV2 is not available for generation.")
+            # ExLlamaV2 generation
+            input_ids = tokenizer.encode(full_prompt)
+            
+            settings = ExLlamaV2Sampler.Settings()
+            settings.temperature = temperature
+            settings.top_k = top_k
+            settings.top_p = top_p
+            # Add other ExLlamaV2 specific settings as needed
+            
+            output_ids = model.generate( # Corrected: use model.generate
+                input_ids,
+                settings,
+                max_new_tokens=max_new_tokens,
+                # stop_strings = ["\nUser:", "\n###", "<|im_end|>"] # Example stop strings
+            )
+            generated_text = tokenizer.decode(output_ids)
+            
+        elif inference_library == "llama_cpp":
+            if not LLAMA_CPP_AVAILABLE:
+                raise RuntimeError("llama-cpp-python is not available for generation.")
+            # llama.cpp generation
+            # The 'prompt' is directly passed to the Llama model's __call__ method
+            output = model(
+                full_prompt,
+                max_tokens=max_new_tokens,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+                stop=["\nUser:", "\n###", "<|im_end|>"], # Example stop tokens
+                echo=False # Do not echo the prompt back
+            )
+            generated_text = output["choices"][0]["text"]
 
-        output_tokens = model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            top_k=top_k,
-            top_p=top_p,
-            do_sample=True, # Enable sampling for creative generation
-            pad_token_id=tokenizer.eos_token_id, # Handle padding tokens
-            eos_token_id=tokenizer.eos_token_id, # Stop generation at EOS token
-        )
-        generated_text = tokenizer.decode(output_tokens[0], skip_special_tokens=True)
-        
+        else:
+            generated_text = "Error: Unknown inference library for generation."
+
+
         # Remove the input prompt from the generated text
-        if generated_text.startswith(prompt):
-            generated_text = generated_text[len(prompt):].strip()
+        if generated_text.startswith(full_prompt):
+            generated_text = generated_text[len(full_prompt):].strip()
 
         return generated_text
 
@@ -186,7 +421,7 @@ async def suggest_next_scene(
         temperature=0.8,
         top_k=50,
         top_p=0.95,
-        model_type="auxiliary", # IMPORTANT: Use the auxiliary model
+        model_type="auxiliary",
         selected_character_ids=selected_character_ids,
         selected_plot_point_ids=selected_plot_point_ids
     )

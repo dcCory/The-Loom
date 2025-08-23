@@ -1,7 +1,8 @@
-// src/services/api.js
-const API_BASE_URL = 'http://localhost:8000/api'; // FastAPI backend URL
+// frontend/src/services/api.js
+const API_HOST_PORT = 'http://localhost:8000'; 
+const API_PREFIX = '/api';
 
-// --- Utility for API Calls ---
+// --- Utility for Making API Calls ---
 async function callApi(endpoint, method = 'GET', data = null) {
   const headers = {
     'Content-Type': 'application/json',
@@ -17,28 +18,33 @@ async function callApi(endpoint, method = 'GET', data = null) {
   }
 
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+    const response = await fetch(`${API_HOST_PORT}${API_PREFIX}${endpoint}`, config);
+    
     if (!response.ok) {
       const errorData = await response.json();
       throw new Error(errorData.detail || `API Error: ${response.status} ${response.statusText}`);
     }
-
+    
     if (response.status === 204) {
       return null;
     }
+    
     return await response.json();
   } catch (error) {
-    console.error(`Error calling ${method} ${endpoint}:`, error);
+    console.error(`Error calling ${method} ${API_PREFIX}${endpoint}:`, error);
     throw error;
   }
 }
 
-// --- Backend Health Check ---
+// --- Backend Health Check Endpoint ---
 export const testBackend = async () => {
-  return callApi('/'); // Calls the root endpoint for a simple check
+  return fetch(`${API_HOST_PORT}/`).then(res => { // Now uses API_HOST_PORT
+    if (!res.ok) throw new Error('Backend root not reachable');
+    return res.json();
+  });
 };
 
-// --- Story Generation Endpoints ---
+// --- Story Generation & Persistence Endpoints ---
 export const generateStoryText = async (requestData) => {
   return callApi('/story/generate', 'POST', requestData);
 };
@@ -108,4 +114,19 @@ export const suggestDialogueSparker = async (requestData) => {
 
 export const suggestSettingDetail = async (requestData) => {
   return callApi('/writer-block/suggest-setting-detail', 'POST', requestData);
+};
+
+// --- Model Loading Endpoint ---
+export const loadModel = async (requestData) => {
+  return callApi('/story/load_model', 'POST', requestData);
+};
+
+// --- Model Unload Endpoint ---
+export const unloadModels = async () => {
+  return callApi('/story/unload_models', 'POST');
+};
+
+// --- Endpoint to get available local models ---
+export const getAvailableModels = async () => {
+  return callApi('/story/available_models');
 };
