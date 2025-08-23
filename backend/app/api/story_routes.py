@@ -20,11 +20,12 @@ async def test_story_endpoint():
 # --- Endpoints for model loading and text generation ---
 
 @router.post("/load_model", response_model=ModelLoadResponse)
+@router.post("/load_model", response_model=ModelLoadResponse)
 async def load_ai_model(request: ModelLoadRequest):
     """
     Endpoint to load an AI model into memory.
     """
-    response = await load_model(request.model_id, request.device, request.model_type, request.inference_library)
+    response = await load_model(request.model_id, request.device, request.model_type, request.inference_library, request.max_context)
     if response["status"] == "error":
         raise HTTPException(status_code=500, detail=response["message"])
     return response

@@ -15,21 +15,15 @@ read -p "Enter your choice (1, 2, or 3): " CHOICE
 case "$CHOICE" in
     1)
         echo "You chose CPU. Installing CPU-only dependencies."
-        export CMAKE_ARGS=""
-        export FORCE_CMAKE=1
-        REQUIREMENTS_FILE="requirements-cpu.txt"
+        REQUIREMENTS_FILE="backend/requirements-cpu.txt"
         ;;
     2)
         echo "You chose NVIDIA GPU. Setting up for CUDA compilation."
-        export CMAKE_ARGS="-DLLAMA_CUBLAS=on"
-        export FORCE_CMAKE=1
-        REQUIREMENTS_FILE="requirements-cuda.txt"
+        REQUIREMENTS_FILE="backend/requirements-cuda.txt"
         ;;
     3)
         echo "You chose AMD GPU. Setting up for ROCm compilation."
-        export CMAKE_ARGS="-DLLAMA_HIPBLAS=on"
-        export FORCE_CMAKE=1
-        REQUIREMENTS_FILE="requirements-rocm.txt"
+        REQUIREMENTS_FILE="backend/requirements-rocm.txt"
         ;;
     *)
         echo "Invalid choice. Please run the script again and choose 1, 2, or 3."
@@ -67,6 +61,8 @@ source "backend/venv/bin/activate"
 
 echo "Installing dependencies from '$REQUIREMENTS_FILE'..."
 pip install -r "$REQUIREMENTS_FILE"
+unset CMAKE_ARGS
+unset FORCE_CMAKE
 
 echo "Deactivating the virtual environment..."
 deactivate

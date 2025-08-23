@@ -50,6 +50,7 @@ function App() {
   const [temperature, setTemperature] = useState(0.8);
   const [topK, setTopK] = useState(50);
   const [topP, setTopP] = useState(0.95);
+  const [maxContext, setMaxContext] = useState(4096);
 
   // This dynamically filters device options based on selected inference library
   const getDeviceOptions = () => {
@@ -60,7 +61,7 @@ function App() {
     return [
       { value: 'cpu', label: 'CPU' },
       { value: 'cuda', label: 'CUDA (NVIDIA GPU)' },
-      { value: 'hip', label: 'ROCm (AMD GPU)' },
+      { value: 'vulkan', label: 'Vulkan (AMD/Intel/NVIDIA)' },
     ];
   };
 
@@ -199,6 +200,7 @@ function App() {
         device: modelDevice,
         model_type: modelType,
         inference_library: inferenceLibrary,
+        max_context: maxContext,
       };
       const response = await api.loadModel(requestData);
       console.log(response.message);
@@ -621,6 +623,30 @@ function App() {
                 step="0.01"
                 value={topP}
                 onChange={(e) => setTopP(Number(e.target.value))}
+                className="w-full p-1 mt-1 text-xs bg-gray-700 text-gray-100 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+
+            {/* Max Context */}
+            <div>
+              <label htmlFor="maxContext" className="block text-sm font-medium text-gray-400">Max Context: {maxContext}</label>
+              <input
+                type="range"
+                id="maxContext"
+                min="512"
+                max="131072" // Max for Gemma 3 is 128k, so 131072 is a good upper bound
+                step="512"
+                value={maxContext}
+                onChange={(e) => setMaxContext(Number(e.target.value))}
+                className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+              <input
+                type="number"
+                min="512"
+                max="131072"
+                step="512"
+                value={maxContext}
+                onChange={(e) => setMaxContext(Number(e.target.value))}
                 className="w-full p-1 mt-1 text-xs bg-gray-700 text-gray-100 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>

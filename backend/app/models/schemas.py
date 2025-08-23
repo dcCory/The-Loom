@@ -20,9 +20,10 @@ class GenerateTextResponse(BaseModel):
 
 class ModelLoadRequest(BaseModel):
     model_id: str # A file path relative to backend/models
-    device: Literal["cpu", "cuda", "hip"] = "cpu" # Explicitly defines allowed devices
+    device: Literal["cpu", "cuda", "vulkan"] = "cpu" # Explicitly defines allowed devices
     model_type: Literal["primary", "auxiliary"] = "primary"
     inference_library: Literal["transformers", "exllamav2", "llama_cpp"] = "transformers" # Inference library selection
+    max_context: int = Field(default=2048, ge=512, le=131072)
 
 class ModelLoadResponse(BaseModel):
     message: str
@@ -131,7 +132,7 @@ class ModelFile(BaseModel):
     path: str # Relative path from backend/models
     size_mb: float
     compatible_libraries: List[Literal["transformers", "exllamav2", "llama_cpp"]]
-    suggested_device: Literal["cpu", "cuda", "hip"]
+    suggested_device: Literal["cpu", "cuda", "vulkan"]
     description: str = ""
 
 class AvailableModelsResponse(BaseModel):

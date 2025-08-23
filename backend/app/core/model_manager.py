@@ -125,9 +125,10 @@ async def discover_local_models() -> List[ModelFile]:
 
 async def load_model(
     model_id: str,
-    device: Literal["cpu", "cuda", "hip"],
+    device: Literal["cpu", "cuda", "hip", "vulkan"],
     model_type: Literal["primary", "auxiliary"],
-    inference_library: Literal["transformers", "exllamav2", "llama_cpp"]
+    inference_library: Literal["transformers", "exllamav2", "llama_cpp"],
+    max_context: int
 ):
     """
     Loads an AI model and its tokenizer using the specified inference library.
@@ -141,36 +142,48 @@ async def load_model(
         model_instance = None
         tokenizer_instance = None
         
-        # Determine the actual device to use for PyTorch models
         actual_device = "cpu"
         if device == "cuda" and torch.cuda.is_available():
             actual_device = "cuda"
             print("[DEBUG] NVIDIA CUDA detected and selected.")
-        elif device == "hip" and torch.backends.hip.is_available():
+        elif device == "hip" and hasattr(torch.backends, 'hip') and torch.backends.hip.is_available():
             actual_device = "hip"
             print("[DEBUG] AMD ROCm (HIP) detected and selected.")
+        elif device == "vulkan":
+            if not LLAMA_CPP_AVAILABLE:
+                raise ImportError("llama-cpp-python is not installed or not available for Vulkan.")
+            actual_device = "vulkan"
+            print("[DEBUG] Vulkan selected for llama.cpp.")
         else:
-            if device != "cpu": # Only warn if user explicitly chose GPU but it's not available
+            if device != "cpu":
                 print(f"[WARNING] Requested device '{device}' not available, falling back to CPU.")
             actual_device = "cpu"
 
 
         if inference_library == "transformers":
-            # Transformers can load from a local path (relative to MODELS_DIR) or Hugging Face ID
             full_model_path = os.path.join(MODELS_DIR, model_id) if model_id != "Hugging Face ID" else model_id
 
             if model_id != "Hugging Face ID" and not os.path.exists(full_model_path):
-                raise FileNotFoundError(f"Local Transformers model directory not found at {full_model_path}")
-            
-            tokenizer_instance = AutoTokenizer.from_pretrained(full_model_path)
-            model_instance = AutoModelForCausalLM.from_pretrained(full_model_path, torch_dtype=torch.float16)
-            model_instance.to(actual_device) # Move model to the determined device
+                if full_model_path.endswith(".gguf"):
+                    print(f"[DEBUG] Loading GGUF with Transformers: {full_model_path}")
+                    tokenizer_instance = AutoTokenizer.from_pretrained(full_model_path, model_max_length=max_context)
+                    model_instance = AutoModelForCausalLM.from_pretrained(full_model_path, torch_dtype=torch.float16)
+                    model_instance.config.max_position_embeddings = max_context
+                else:
+                    raise FileNotFoundError(f"Local Transformers model directory/file not found at {full_model_path}")
+            else:
+                tokenizer_instance = AutoTokenizer.from_pretrained(full_model_path, model_max_length=max_context)
+                model_instance = AutoModelForCausalLM.from_pretrained(full_model_path, torch_dtype=torch.float16)
+                model_instance.config.max_position_embeddings = max_context
+                print(f"[DEBUG] Transformers model loaded from {full_model_path} to {actual_device.upper()}.")
+
+            model_instance.to(actual_device)
             print(f"[DEBUG] Transformers model loaded from {full_model_path} to {actual_device.upper()}.")
 
         elif inference_library == "exllamav2":
             if not EXLLAMAV2_AVAILABLE:
                 raise ImportError("ExLlamaV2 is not installed or not available.")
-            if actual_device != "cuda": # ExLlamaV2 strictly requires CUDA
+            if actual_device != "cuda":
                 raise ValueError("ExLlamaV2 only supports CUDA devices. Please select CUDA.")
             
             model_path = os.path.join(MODELS_DIR, model_id)
@@ -180,6 +193,8 @@ async def load_model(
             config = ExLlamaV2Config()
             config.model_dir = model_path
             config.prepare()
+            config.max_seq_len = max_context
+            config.max_input_len = max_context 
 
             tokenizer_instance = ExLlamaV2Tokenizer(config)
             model_instance = ExLlamaV2(config)
@@ -194,16 +209,17 @@ async def load_model(
             if not os.path.exists(model_path):
                 raise FileNotFoundError(f"GGUF model file not found at {model_path}")
             
-            # MODIFIED: Use actual_device for n_gpu_layers calculation
-            n_gpu_layers = -1 if (actual_device == "cuda" or actual_device == "hip") else 0
-            model_instance = Llama(model_path=model_path, n_gpu_layers=n_gpu_layers, verbose=False)
-            tokenizer_instance = AutoTokenizer.from_pretrained("gpt2") # Llama.cpp doesn't have its own tokenizer object like transformers
-            print(f"[DEBUG] llama.cpp model loaded from {model_path} with n_gpu_layers={n_gpu_layers}.")
+            n_gpu_layers = 0
+            if actual_device == "cuda" or actual_device == "hip" or actual_device == "vulkan":
+                n_gpu_layers = -1
+            
+            model_instance = Llama(model_path=model_path, n_gpu_layers=n_gpu_layers, n_ctx=max_context, verbose=False)
+            tokenizer_instance = AutoTokenizer.from_pretrained("gpt2")
+            print(f"[DEBUG] llama.cpp model loaded from {model_path} with n_gpu_layers={n_gpu_layers}, n_ctx={max_context} (Vulkan/GPU if compiled).")
 
         else:
             raise ValueError(f"Unknown inference library: {inference_library}")
 
-        # Assign loaded model and tokenizer to global variables
         if model_type == "primary":
             _primary_model = model_instance
             _primary_tokenizer = tokenizer_instance
@@ -236,7 +252,7 @@ async def unload_models():
         _primary_model = None
         _primary_tokenizer = None
         _primary_inference_library = None
-        if torch.cuda.is_available() or (torch.backends.hip.is_available() if hasattr(torch.backends, 'hip') else False): # Clear GPU cache if applicable
+        if torch.cuda.is_available() or (torch.backends.vulkan.is_available() if hasattr(torch.backends, 'vulkan') else False): # Clear GPU cache if applicable
             torch.cuda.empty_cache()
         print("[DEBUG] model_manager: Primary model unloaded.")
     
@@ -246,7 +262,7 @@ async def unload_models():
         _auxiliary_model = None
         _auxiliary_tokenizer = None
         _auxiliary_inference_library = None
-        if torch.cuda.is_available() or (torch.backends.hip.is_available() if hasattr(torch.backends, 'hip') else False): # Clear GPU cache if applicable
+        if torch.cuda.is_available() or (torch.backends.vulkan.is_available() if hasattr(torch.backends, 'vulkan') else False): # Clear GPU cache if applicable
             torch.cuda.empty_cache()
         print("[DEBUG] model_manager: Auxiliary model unloaded.")
     
