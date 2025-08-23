@@ -28,9 +28,8 @@ except ImportError:
     LLAMA_CPP_AVAILABLE = False
     print("[DEBUG] llama_cpp not found. It will not be available for inference.")
 
-# Imported character_store and Character schema
-from app.core import character_store
-from app.core import plot_store
+# Imported project_manager instead of character_store and plot_store
+from app.core import project_manager
 from app.models.schemas import Character, PlotPoint, ModelFile
 
 # Placeholder for loaded models
@@ -294,51 +293,48 @@ async def generate_text(
     if model is None or tokenizer is None:
         return "Error: AI model not loaded. Please load a model first."
 
-    # Determine the actual device of the loaded model (if applicable)
-    model_device = "cpu" # Default
+    model_device = "cpu"
     if inference_library == "transformers" and hasattr(model, 'device'):
         model_device = str(model.device)
-    # ExLlamaV2 models are always on CUDA, llama_cpp handles internally
 
-    # Fetches and formats character context for AI
+    # --- Fetch and format character context ---
     character_context = ""
     if selected_character_ids:
         characters_info: List[str] = []
         for char_id in selected_character_ids:
-            character = character_store.get_character(char_id)
+            character = project_manager.get_active_project_character(char_id)
             if character:
-                # Format character details into a string
-                char_str = f"Name:{character.name}"
+                char_str = f"Name: {character.name}"
                 if character.description:
                     char_str += f", Description: {character.description}"
                 if character.traits:
-                    char_str += f", Traist: {character.traits}"
+                    char_str += f", Traits: {character.traits}"
                 if character.motivations:
                     char_str += f", Motivations: {character.motivations}"
                 if character.physical_appearance:
                     char_str += f", Appearance: {character.physical_appearance}"
-                if character.status:
+                if character.status != "Alive":
                     char_str += f", Status: {character.status}"
                 characters_info.append(char_str)
-
+        
         if characters_info:
             character_context = "--- Character Information (for context) ---\n"
             character_context += "\n".join(characters_info)
             character_context += "\n-----------------------------------------\n\n"
 
-    # --- Fetch and format plot point context for AI ---
+    # --- Fetches and formats plot point context ---
     plot_point_context = ""
     if selected_plot_point_ids:
         plot_points_info: List[str] = []
         for pp_id in selected_plot_point_ids:
-            plot_point = plot_store.get_plot_point(pp_id)
+            plot_point = project_manager.get_active_project_plot_point(pp_id)
             if plot_point:
                 pp_str = f"Plot Point: {plot_point.title}"
                 if plot_point.description:
                     pp_str += f", Description: {plot_point.description}"
                 if plot_point.type:
                     pp_str += f", Type: {plot_point.type}"
-                if plot_point.status != "Planned": # Only mention if not 'Planned'
+                if plot_point.status != "Planned":
                     pp_str += f", Status: {plot_point.status}"
                 plot_points_info.append(pp_str)
         
@@ -375,13 +371,11 @@ async def generate_text(
             settings.temperature = temperature
             settings.top_k = top_k
             settings.top_p = top_p
-            # Add other ExLlamaV2 specific settings as needed
             
-            output_ids = model.generate( # Corrected: use model.generate
+            output_ids = model.generate(
                 input_ids,
                 settings,
                 max_new_tokens=max_new_tokens,
-                # stop_strings = ["\nUser:", "\n###", "<|im_end|>"] # Example stop strings
             )
             generated_text = tokenizer.decode(output_ids)
             
@@ -389,15 +383,14 @@ async def generate_text(
             if not LLAMA_CPP_AVAILABLE:
                 raise RuntimeError("llama-cpp-python is not available for generation.")
             # llama.cpp generation
-            # The 'prompt' is directly passed to the Llama model's __call__ method
             output = model(
                 full_prompt,
                 max_tokens=max_new_tokens,
                 temperature=temperature,
                 top_k=top_k,
                 top_p=top_p,
-                stop=["\nUser:", "\n###", "<|im_end|>"], # Example stop tokens
-                echo=False # Do not echo the prompt back
+                stop=["\nUser:", "\n###", "<|im_end|>"],
+                echo=False
             )
             generated_text = output["choices"][0]["text"]
 
@@ -405,7 +398,6 @@ async def generate_text(
             generated_text = "Error: Unknown inference library for generation."
 
 
-        # Remove the input prompt from the generated text
         if generated_text.startswith(full_prompt):
             generated_text = generated_text[len(full_prompt):].strip()
 
@@ -413,7 +405,7 @@ async def generate_text(
 
     except Exception as e:
         print(f"Error during text generation: {e}")
-        return f"Error during text generation: {str(e)}"
+        return (f"Error during text generation: str{e}")
     
 #--- Writer's Block Buster Functions ---
 async def suggest_next_scene(
@@ -433,7 +425,7 @@ async def suggest_next_scene(
     # Use smaller max_new_tokens for concise suggestions
     return await generate_text(
         prompt=prompt,
-        max_new_tokens=50,
+        max_new_tokens=1024,
         temperature=0.8,
         top_k=50,
         top_p=0.95,
@@ -446,7 +438,6 @@ async def suggest_character_idea(
     current_story_context: str,
     selected_character_ids: Optional[List[UUID]] = None,
     selected_plot_point_ids: Optional[List[UUID]] = None,
-    focus_on_existing_character_id: Optional[UUID] = None,
     desired_role: Optional[str] = None
 ) -> str:
     """
@@ -455,25 +446,21 @@ async def suggest_character_idea(
     """
     prompt_parts = [f"Given the story context:\n'{current_story_context}'\n\n"]
 
-    if focus_on_existing_character_id:
-        character = character_store.get_character(focus_on_existing_character_id)
-        if character:
-            prompt_parts.append(f"Focus on developing the character '{character.name}' (Description: {character.description}, Traits: {character.traits}).")
-            prompt_parts.append("Suggest a new internal conflict, a surprising past event, or a new skill they could acquire.")
-        else:
-            prompt_parts.append("Suggest a new character idea.")
-    else:
-        prompt_parts.append("Suggest a new character idea.")
-        if desired_role:
-            prompt_parts.append(f"The character should ideally serve as a {desired_role}.")
-        prompt_parts.append("Provide their name, a brief description, and their potential role in the story.")
+    prompt_parts.append("Suggest a new character idea.")
+    if desired_role:
+        prompt_parts.append(f"""The character should be relevent to the story and provide engaging ways to further plot development.
+                            Include the character's Name, Description, Traits (comma-separated), motivations, and physical appearance.
+                            
+                            If you don't think you can come up with a character that would fit into the current story context, give some suggestions
+                            on how to further develop existing characters in the story.""")
+    prompt_parts.append("Provide their name, a brief description, and their potential role in the story.")
 
     prompt = " ".join(prompt_parts)
     prompt += " Keep the suggestion concise."
 
     return await generate_text(
         prompt=prompt,
-        max_new_tokens=70,
+        max_new_tokens=1024,
         temperature=0.9,
         top_k=50,
         top_p=0.95,
@@ -501,9 +488,12 @@ async def suggest_dialogue_sparker(
             char_names = ", ".join([c.name for c in dialogue_chars])
             prompt_parts.append(f"Imagine a conversation between {char_names}.")
         else:
-            prompt_parts.append("Imagine a conversation between unspecified characters.")
+            prompt_parts.append("""Imagine a conversation between unspecified characters that appear in the current story. What are some interesting
+            ways the author could continue existing dialogue or spark some engaging dialogue to further the story?""")
     else:
-        prompt_parts.append("Imagine a conversation between two characters.")
+        prompt_parts.append("""Imagine a conversation between two characters.
+                            What are some interesting ways the author could continue 
+                            existing dialogue or spark some engaging dialogue to further the story?""")
 
     if topic:
         prompt_parts.append(f"The dialogue should be about: '{topic}'.")
@@ -514,7 +504,7 @@ async def suggest_dialogue_sparker(
 
     return await generate_text(
         prompt=prompt,
-        max_new_tokens=40,
+        max_new_tokens=1024,
         temperature=0.9,
         top_k=50,
         top_p=0.95,
@@ -550,7 +540,7 @@ async def suggest_setting_detail(
 
     return await generate_text(
         prompt=prompt,
-        max_new_tokens=60,
+        max_new_tokens=1024,
         temperature=0.8,
         top_k=50,
         top_p=0.95,

@@ -6,7 +6,7 @@ from app.models.schemas import (
     StoryTextRequest, StoryTextResponse, AvailableModelsResponse
 )
 from app.core.model_manager import load_model, unload_models, generate_text, discover_local_models, EXLLAMAV2_AVAILABLE, LLAMA_CPP_AVAILABLE
-from app.core import persistence
+from app.core import project_manager
 
 router = APIRouter()
 
@@ -19,7 +19,6 @@ async def test_story_endpoint():
 
 # --- Endpoints for model loading and text generation ---
 
-@router.post("/load_model", response_model=ModelLoadResponse)
 @router.post("/load_model", response_model=ModelLoadResponse)
 async def load_ai_model(request: ModelLoadRequest):
     """
@@ -45,18 +44,23 @@ async def generate_story_text(request: GenerateTextRequest):
     """
     Endpoint to generate text using the loaded AI model.
     """
+
+    if not project_manager.get_active_project():
+        raise HTTPException(status_code=400, detail="No active project. Please load or create a project first.")
+
     generated_content = await generate_text(
         prompt=request.prompt,
         max_new_tokens=request.max_new_tokens,
         temperature=request.temperature,
         top_k=request.top_k,
         top_p=request.top_p,
-        model_type="primary", # Assuming primary model for main generation
-        selected_character_ids=request.selected_character_ids, # Pass character IDs
-        selected_plot_point_ids=request.selected_plot_point_ids # Pass plot point IDs
+        model_type="primary",
+        selected_character_ids=request.selected_character_ids,
+        selected_plot_point_ids=request.selected_plot_point_ids
     )
     if "Error:" in generated_content:
         raise HTTPException(status_code=500, detail=generated_content)
+    
     return {"generated_text": generated_content}
 
 #-- Endpoints for Main Story Text Persistence ---
@@ -64,17 +68,26 @@ async def generate_story_text(request: GenerateTextRequest):
 @router.put("/main_text", response_model=StoryTextResponse)
 async def update_main_story_text(request: StoryTextRequest):
     """
-    Updates and saves the main story text.
+    Updates and saves the main story text of the active project.
     """
-    persistence.save_main_story_text(request.text)
+    active_project = project_manager.get_active_project()
+    if not active_project:
+        raise HTTPException(status_code=400, detail="No active project. Cannot save story text.")
+    
+    project_manager.set_active_project_story_text(request.text)
+    await project_manager.save_active_project()
     return {"text": request.text}
 
 @router.get("/main_text", response_model=StoryTextResponse)
 async def get_main_story_text():
     """
-    Retrieves the current main story text.
+    Retrieves the current main story text of the active project.
     """
-    text = persistence.load_main_story_text()
+    active_project = project_manager.get_active_project()
+    if not active_project:
+        return {"text": ""}
+    
+    text = project_manager.get_active_project_story_text()
     return {"text": text}
 
 # Endpoint to get a list of available local model files

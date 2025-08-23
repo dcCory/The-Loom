@@ -1,4 +1,4 @@
-// src/components/CollapsiblePanel.jsx
+// src/components/CollapsiblePanel.js
 import React, { useState } from 'react';
 
 const CollapsiblePanel = ({ title, children, defaultOpen = true, position = 'left' }) => {

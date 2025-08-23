@@ -140,3 +140,41 @@ class AvailableModelsResponse(BaseModel):
     # flags for backend library availability
     exllamav2_available: bool = False
     llama_cpp_available: bool = False
+
+# --- Project Management Schemas ---
+
+class ProjectBase(BaseModel):
+    """Base schema for a Project, containing all its data."""
+    title: str = Field(..., min_length=1, max_length=200)
+    story_text: str = ""
+    characters: List[Character] = [] # List of Character objects
+    plot_points: List[PlotPoint] = [] # List of PlotPoint objects
+
+class ProjectCreate(BaseModel):
+    """Schema for creating a new Project."""
+    title: str = Field(..., min_length=1, max_length=200)
+
+class Project(ProjectBase):
+    """Complete Project schema including ID, used for response."""
+    id: UUID = Field(default_factory=uuid4) # Auto-generate UUID for new projects
+
+    class Config:
+        from_attributes = True
+
+class ProjectListItem(BaseModel):
+    """Schema for listing projects (minimal info)."""
+    id: UUID
+    title: str
+    last_modified: Optional[str] = None # To be added by persistence layer (e.g., datetime string)
+
+    class Config:
+        from_attributes = True
+
+class AvailableProjectsResponse(BaseModel):
+    """Response schema for listing all available projects."""
+    projects: List[ProjectListItem]
+
+class ProjectLoadResponse(BaseModel):
+    """Response schema when a project is loaded."""
+    message: str
+    project: Project

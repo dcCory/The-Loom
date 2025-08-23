@@ -34,7 +34,6 @@ async def get_character_idea_suggestion(request: CharacterIdeaRequest):
         current_story_context=request.current_story_context,
         selected_character_ids=request.selected_character_ids,
         selected_plot_point_ids=request.selected_plot_point_ids,
-        focus_on_existing_character_id=request.focus_on_existing_character_id,
         desired_role=request.desired_role
     )
     if "Error:" in suggestion:

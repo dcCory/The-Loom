@@ -7,40 +7,40 @@ import uvicorn
 
 #import API routers
 from app.api import story_routes
+from app.api import writer_block_routes
+from app.api import project_routes
 from app.api import character_routes
 from app.api import plot_routes
-from app.api import writer_block_routes
 
-#initialize FastAPI app
+#initializes FastAPI app
 app = FastAPI(
     title="AI Writing Environment Backend",
     description="Backend API for local AI-assisted creative writing.",
     version="0.1.0"
 )
 
-#Configures Cross-Origin Resource Sharing
-#Tells the API what sources to expect calls from.
+# Cross-Origin Resource Sharing
 origins = [
-    "http://localhost:3000", #default react development server port
-    "http://127.0.0.1:3000"
-    #Any other frontend origins can be added as necessary.
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"], # Allows all HTTP methods (GET, POST, PUT, DELETE, etc.)
-    allow_headers=["*"], # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"]
 )
 
 # API routers
 app.include_router(story_routes.router, prefix="/api/story", tags=["Story Generation"])
-app.include_router(character_routes.router, prefix="/api/character", tags=["Character Management"])
-app.include_router(plot_routes.router, prefix="/api/plot", tags=["Plot Point Management"])
 app.include_router(writer_block_routes.router, prefix="/api/writer-block", tags=["Writer's Block Buster Tools"])
+app.include_router(project_routes.router, prefix="/api/project", tags=["Project Management"])
+app.include_router(character_routes.router, prefix="/api/character", tags=["Character Management"])
+app.include_router(plot_routes.router, prefix="/api/plot", tags=["Plot-Point Management"])
 
-#Root endpoint for testing
+# Root endpoint for basic testing
 @app.get("/")
 async def read_root():
     return {"message": "Welcome to the AI Writing Environment Backend!"}

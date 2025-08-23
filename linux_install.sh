@@ -45,7 +45,7 @@ if [ -d "backend/venv" ]; then
     read -p "Do you want to remove it for a fresh install? (y/n): " REMOVE_CHOICE
     if [[ "$REMOVE_CHOICE" =~ ^[Yy]$ ]]; then
         echo "Removing 'backend/venv'..."
-        rm -rf "vackend/venv"
+        rm -rf "backend/venv"
     else
         echo "Skipping removal. Re-installing dependencies in the existing environment."
     fi
@@ -54,7 +54,7 @@ fi
 # Create parent directory if it doesn't exist
 
 echo "Creating a Python virtual environment at 'backend/venv'..."
-python3 -m venv "backend/venv"
+python3.12 -m venv "backend/venv"
 
 echo "Activating the virtual environment..."
 source "backend/venv/bin/activate"
@@ -67,6 +67,25 @@ unset FORCE_CMAKE
 echo "Deactivating the virtual environment..."
 deactivate
 
+# --- Frontend Installation Steps ---
+echo "--- Setting up Frontend ---"
+FRONTEND_DIR="frontend"
+
+if [ ! -d "$FRONTEND_DIR" ]; then
+    echo "Error: Frontend directory '$FRONTEND_DIR' not found. Please ensure it exists."
+    exit 1
+fi
+
+cd "$FRONTEND_DIR"
+
+echo "Installing Node.js dependencies for the frontend..."
+npm install
+
+echo "Building the frontend for production..."
+npm run build
+
+echo "Returning to project root directory..."
+cd ..
+
 echo "Installation complete! 🎉"
-echo "To use your environment, run: source $VENV_PATH/bin/activate"
-echo "Then you can run your Python scripts."
+echo "Welcome to The Loom! Check out the README and user_manual to get started!"

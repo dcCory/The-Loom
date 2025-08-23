@@ -38,23 +38,15 @@ async function callApi(endpoint, method = 'GET', data = null) {
 
 // --- Backend Health Check Endpoint ---
 export const testBackend = async () => {
-  return fetch(`${API_HOST_PORT}/`).then(res => { // Now uses API_HOST_PORT
+  return fetch(`${API_HOST_PORT}/`).then(res => {
     if (!res.ok) throw new Error('Backend root not reachable');
     return res.json();
   });
 };
 
-// --- Story Generation & Persistence Endpoints ---
+// --- Story Generation Endpoint ---
 export const generateStoryText = async (requestData) => {
   return callApi('/story/generate', 'POST', requestData);
-};
-
-export const getMainStoryText = async () => {
-  return callApi('/story/main_text');
-};
-
-export const saveMainStoryText = async (text) => {
-  return callApi('/story/main_text', 'PUT', { text });
 };
 
 // --- Character Management Endpoints ---
@@ -129,4 +121,33 @@ export const unloadModels = async () => {
 // --- Endpoint to get available local models ---
 export const getAvailableModels = async () => {
   return callApi('/story/available_models');
+};
+
+// --- Project Management Endpoints ---
+export const getAvailableProjects = async () => {
+  return callApi('/project/available');
+};
+
+export const createProject = async (projectData) => {
+  return callApi('/project/create', 'POST', projectData);
+};
+
+export const loadProject = async (projectId) => {
+  return callApi(`/project/load/${projectId}`, 'POST');
+};
+
+export const saveActiveProject = async () => {
+  return callApi('/project/save_active', 'POST');
+};
+
+export const deleteProject = async (projectId) => {
+  return callApi(`/project/${projectId}`, 'DELETE');
+};
+
+export const saveMainStoryText = async (text) => {
+  return callApi('/story/main_text', 'PUT', { text });
+};
+
+export const getMainStoryText = async () => {
+  return callApi('/story/main_text');
 };

@@ -1,0 +1,63 @@
+#!/bin/bash
+
+# --- Configuration ---
+BACKEND_DIR="backend"
+FRONTEND_DIR="frontend"
+BACKEND_VENV="$BACKEND_DIR/venv"
+BACKEND_PORT=8000
+FRONTEND_PORT=3000
+
+# --- Function to gracefully stop processes ---
+cleanup() {
+    echo -e "\nStopping backend and frontend servers..."
+    
+
+    if [ -n "$BACKEND_PID" ]; then
+        kill "$BACKEND_PID"
+        echo "Backend (PID $BACKEND_PID) stopped."
+    fi
+
+
+    if [ -n "$FRONTEND_PID" ]; then
+        kill "$FRONTEND_PID"
+        echo "Frontend (PID $FRONTEND_PID) stopped."
+    fi
+    exit 0
+}
+
+# Trap CTRL+C to call the cleanup function
+trap cleanup SIGINT
+
+# --- Start Backend ---
+echo "Starting backend server..."
+cd "$BACKEND_DIR" || { echo "Error: Backend directory not found!"; exit 1; }
+source "venv/bin/activate" || { echo "Error: Backend virtual environment not found or failed to activate!"; exit 1; }
+
+
+uvicorn main:app --port "$BACKEND_PORT" --reload & 
+BACKEND_PID=$! 
+echo "Backend started with PID: $BACKEND_PID on http://localhost:$BACKEND_PORT"
+deactivate 
+
+cd .. 
+
+# --- Start Frontend ---
+echo "Starting frontend server..."
+cd "$FRONTEND_DIR" || { echo "Error: Frontend directory not found!"; exit 1; }
+
+
+npm start & 
+FRONTEND_PID=$! 
+echo "Frontend started with PID: $FRONTEND_PID on http://localhost:$FRONTEND_PORT"
+
+cd .. 
+
+echo -e "\n----------------------------------------------------"
+echo "Both backend and frontend servers are running!"
+echo "Backend: http://localhost:$BACKEND_PORT"
+echo "Frontend: http://localhost:$FRONTEND_PORT"
+echo "Press CTRL+C to stop both servers."
+echo "----------------------------------------------------"
+
+
+wait "$BACKEND_PID" "$FRONTEND_PID"

@@ -52,12 +52,18 @@ function App() {
   const [topP, setTopP] = useState(0.95);
   const [maxContext, setMaxContext] = useState(4096);
 
-  // This dynamically filters device options based on selected inference library
+  // Project Management States
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [availableProjects, setAvailableProjects] = useState([]);
+  const [activeProjectId, setActiveProjectId] = useState(null); // Tracks the currently loaded project
+  const [newProjectTitle, setNewProjectTitle] = useState('');
+
+
+  // Dynamically filters device options based on selected inference library
   const getDeviceOptions = () => {
     if (inferenceLibrary === 'exllamav2') {
       return [{ value: 'cuda', label: 'CUDA (NVIDIA GPU)' }];
     }
-    // For transformers or llama_cpp, all options are potentially available
     return [
       { value: 'cpu', label: 'CPU' },
       { value: 'cuda', label: 'CUDA (NVIDIA GPU)' },
@@ -65,7 +71,6 @@ function App() {
     ];
   };
 
-  // This resets the device if incompatible library is selected
   useEffect(() => {
     if (inferenceLibrary === 'exllamav2' && modelDevice !== 'cuda') {
       setModelDevice('cuda');
@@ -81,20 +86,28 @@ function App() {
         setBackendReady(true);
         console.log("Backend is ready and connected!");
 
-        const loadedText = await api.getMainStoryText();
-        setStoryText(loadedText.text);
+        const projectsResponse = await api.getAvailableProjects();
+        setAvailableProjects(projectsResponse.projects);
+        console.log("Available projects:", projectsResponse.projects);
 
-        const loadedCharacters = await api.getAllCharacters();
-        setCharacters(loadedCharacters);
-
-        const loadedPlotPoints = await api.getAllPlotPoints();
-        setPlotPoints(loadedPlotPoints);
+        if (projectsResponse.projects.length > 0) {
+          const firstProjectId = projectsResponse.projects[0].id;
+          await handleLoadProject(firstProjectId);
+        } else {
+          setStoryText('');
+          setCharacters([]);
+          setPlotPoints([]);
+          setActiveProjectId(null);
+        }
 
         const modelsResponse = await api.getAvailableModels();
         setAvailableModels(modelsResponse.models);
         setExllamav2Available(modelsResponse.exllamav2_available);
         setLlamaCppAvailable(modelsResponse.llama_cpp_available);
         console.log("Available local models:", modelsResponse.models);
+        console.log("ExLlamaV2 available:", modelsResponse.exllamav2_available);
+        console.log("llama.cpp available:", modelsResponse.llama_cpp_available);
+
 
       } catch (err) {
         setError("Could not connect to backend or load initial data. Please ensure the backend server is running.");
@@ -111,7 +124,10 @@ function App() {
       setError("Backend not connected. Please start the backend server.");
       return;
     }
-    // Now, the entire storyText is the prompt for continuation
+    if (!activeProjectId) {
+      setError("No active project. Please load or create a project first.");
+      return;
+    }
     if (!storyText.trim()) {
       setError("Story text cannot be empty for generation! Please type something to start.");
       return;
@@ -133,10 +149,10 @@ function App() {
 
       const response = await api.generateStoryText(generateRequest);
       const newText = response.generated_text;
-      setStoryText(prevText => prevText + newText); // Append new text directly
-      // Removed: setPrompt(''); // No longer needed
+      const updatedStoryText = storyText + newText;
+      setStoryText(updatedStoryText);
       
-      await api.saveMainStoryText(storyText + newText); // Save the updated full text
+      await api.saveActiveProject({ story_text: updatedStoryText });
       console.log("Story text auto-saved after generation.");
 
     } catch (err) {
@@ -147,24 +163,91 @@ function App() {
     }
   };
 
-  const handleSaveStory = async () => {
-    if (!backendReady) {
-      setError("Backend not connected. Please start the backend server.");
+  // --- Project Management Handlers ---
+  const handleCreateProject = async () => {
+    setError(null);
+    if (!newProjectTitle.trim()) {
+      setError("Project title cannot be empty!");
       return;
     }
-
-    setIsLoading(true);
-    setError(null);
-
     try {
-      await api.saveMainStoryText(storyText);
-      console.log("Story saved successfully!");
+      const createdProject = await api.createProject({ title: newProjectTitle });
+      setAvailableProjects(prev => [...prev, { id: createdProject.id, title: createdProject.title, last_modified: createdProject.last_modified }]);
+      setNewProjectTitle('');
+      setIsProjectModalOpen(false);
+      await handleLoadProject(createdProject.id); // Load new project immediately
     } catch (err) {
-      setError(`Error saving story: ${err.message || err}`);
-      console.error("Story save error:", err);
+      setError(`Error creating project: ${err.message || err}`);
+      console.error("Create project error:", err);
+    }
+  };
+
+  const handleLoadProject = async (projectId) => {
+    setError(null);
+    setIsLoading(true);
+    try {
+      const response = await api.loadProject(projectId);
+      const loadedProject = response.project;
+      setStoryText(loadedProject.story_text);
+      setCharacters(loadedProject.characters);
+      setPlotPoints(loadedProject.plot_points);
+      setActiveProjectId(loadedProject.id);
+      setSelectedCharacters(prev => prev.filter(id => loadedProject.characters.some(char => char.id === id)));
+      setSelectedPlotPoints(prev => prev.filter(id => loadedProject.plot_points.some(pp => pp.id === id)));
+      setIsProjectModalOpen(false);
+      console.log(`Project '${loadedProject.title}' loaded.`);
+    } catch (err) {
+      setError(`Error loading project: ${err.message || err}`);
+      console.error("Load project error:", err);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSaveProject = async () => {
+    setError(null);
+    if (!activeProjectId) {
+      setError("No active project to save.");
+      return;
+    }
+    setIsLoading(true);
+    try {
+      await api.saveMainStoryText(storyText);
+      const response = await api.saveActiveProject();
+      setAvailableProjects(prev => prev.map(p => p.id === response.project.id ? { ...p, title: response.project.title, last_modified: response.project.last_modified } : p));
+      console.log(`Project '${response.project.title}' saved successfully.`);
+    } catch (err) {
+      setError(`Error saving project: ${err.message || err}`);
+      console.error("Save project error:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDeleteProject = async (projectId) => {
+    setError(null);
+    if (window.confirm("Are you sure you want to delete this project? This cannot be undone.")) {
+      try {
+        await api.deleteProject(projectId);
+        setAvailableProjects(prev => prev.filter(p => p.id !== projectId));
+        if (activeProjectId === projectId) {
+          clearActiveProjectState();
+        }
+        console.log(`Project ${projectId} deleted.`);
+      } catch (err) {
+        setError(`Error deleting project: ${err.message || err}`);
+        console.error("Delete project error:", err);
+      }
+    }
+  };
+
+  const clearActiveProjectState = () => {
+    setStoryText('');
+    setCharacters([]);
+    setPlotPoints([]);
+    setSelectedCharacters([]);
+    setSelectedPlotPoints([]);
+    setActiveProjectId(null);
   };
 
   // --- Character/Plot Point Selection Handlers ---
@@ -241,6 +324,10 @@ function App() {
       setError("Backend not connected. Please start the backend server.");
       return;
     }
+    if (!activeProjectId) {
+      setError("No active project. Please load or create a project first before getting suggestions.");
+      return;
+    }
     setIsSuggesting(true);
     setAiSuggestion('');
     setError(null);
@@ -248,24 +335,23 @@ function App() {
     try {
       let response;
       const baseRequest = {
-        current_story_context: storyText, // Send the entire storyText as context
+        current_story_context: storyText,
         selected_character_ids: selectedCharacters,
         selected_plot_point_ids: selectedPlotPoints,
-        ...requestBody
       };
 
       switch (suggestionType) {
         case 'nextScene':
-          response = await api.suggestNextScene(baseRequest);
+          response = await api.suggestNextScene({ ...baseRequest, ...requestBody });
           break;
         case 'characterIdea':
-          response = await api.suggestCharacterIdea(baseRequest);
+          response = await api.suggestCharacterIdea({ ...baseRequest, ...requestBody });
           break;
         case 'dialogueSparker':
-          response = await api.suggestDialogueSparker(baseRequest);
+          response = await api.suggestDialogueSparker({ ...baseRequest, ...requestBody });
           break;
         case 'settingDetail':
-          response = await api.suggestSettingDetail(baseRequest);
+          response = await api.suggestSettingDetail({ ...baseRequest, ...requestBody });
           break;
         default:
           throw new Error('Unknown suggestion type');
@@ -282,6 +368,10 @@ function App() {
   // --- Character Management Handlers ---
   const handleAddCharacter = async () => {
     setError(null);
+    if (!activeProjectId) {
+      setError("No active project. Please load or create a project first to add characters.");
+      return;
+    }
     try {
       const newCharData = {
         name: newCharName,
@@ -293,7 +383,6 @@ function App() {
       };
       const createdChar = await api.createCharacter(newCharData);
       setCharacters(prev => [...prev, createdChar]);
-      // Clear form and close modal
       setNewCharName(''); setNewCharDesc(''); setNewCharTraits('');
       setNewCharMotivations(''); setNewCharAppearance(''); setNewCharStatus('Alive');
       setIsCharacterModalOpen(false);
@@ -316,6 +405,10 @@ function App() {
 
   const handleUpdateCharacter = async () => {
     setError(null);
+    if (!activeProjectId) {
+      setError("No active project. Please load or create a project first to update characters.");
+      return;
+    }
     if (!editingCharacter) return;
     try {
       const updatedData = {
@@ -338,11 +431,15 @@ function App() {
 
   const handleDeleteCharacter = async (charId) => {
     setError(null);
-    if (window.confirm("Are you sure you want to delete this character?")) { // Use browser confirm for simplicity
+    if (!activeProjectId) {
+      setError("No active project. Please load or create a project first to delete characters.");
+      return;
+    }
+    if (window.confirm("Are you sure you want to delete this character?")) {
       try {
         await api.deleteCharacter(charId);
         setCharacters(prev => prev.filter(char => char.id !== charId));
-        setSelectedCharacters(prev => prev.filter(id => id !== charId)); // Deselect if deleted
+        setSelectedCharacters(prev => prev.filter(id => id !== charId));
       } catch (err) {
         setError(`Error deleting character: ${err.message || err}`);
         console.error("Delete character error:", err);
@@ -352,8 +449,7 @@ function App() {
 
   const handleCloseCharacterModal = () => {
     setIsCharacterModalOpen(false);
-    setEditingCharacter(null); // Clear editing state
-    // Clear form inputs
+    setEditingCharacter(null);
     setNewCharName(''); setNewCharDesc(''); setNewCharTraits('');
     setNewCharMotivations(''); setNewCharAppearance(''); setNewCharStatus('Alive');
   };
@@ -361,6 +457,10 @@ function App() {
   // --- Plot Point Management Handlers ---
   const handleAddPlotPoint = async () => {
     setError(null);
+    if (!activeProjectId) {
+      setError("No active project. Please load or create a project first to add plot points.");
+      return;
+    }
     try {
       const newPpData = {
         title: newPpTitle,
@@ -370,7 +470,6 @@ function App() {
       };
       const createdPp = await api.createPlotPoint(newPpData);
       setPlotPoints(prev => [...prev, createdPp]);
-      // Clear form and close modal
       setNewPpTitle(''); setNewPpDesc(''); setNewPpStatus('Planned'); setNewPpType('Major Plot Beat');
       setIsPlotPointModalOpen(false);
     } catch (err) {
@@ -390,6 +489,10 @@ function App() {
 
   const handleUpdatePlotPoint = async () => {
     setError(null);
+    if (!activeProjectId) {
+      setError("No active project. Please load or create a project first to update plot points.");
+      return;
+    }
     if (!editingPlotPoint) return;
     try {
       const updatedData = {
@@ -410,11 +513,15 @@ function App() {
 
   const handleDeletePlotPoint = async (ppId) => {
     setError(null);
+    if (!activeProjectId) {
+      setError("No active project. Please load or create a project first to delete plot points.");
+      return;
+    }
     if (window.confirm("Are you sure you want to delete this plot point?")) {
       try {
         await api.deletePlotPoint(ppId);
         setPlotPoints(prev => prev.filter(pp => pp.id !== ppId));
-        setSelectedPlotPoints(prev => prev.filter(id => id !== ppId)); // Deselect if deleted
+        setSelectedPlotPoints(prev => prev.filter(id => id !== ppId));
       } catch (err) {
         setError(`Error deleting plot point: ${err.message || err}`);
         console.error("Delete plot point error:", err);
@@ -686,14 +793,24 @@ function App() {
             {isLoading ? 'Generating...' : 'Generate Text'}
           </button>
           <button
-            onClick={handleSaveStory}
-            disabled={isLoading || !backendReady}
+            onClick={() => handleSaveProject()}
+            disabled={isLoading || !backendReady || !activeProjectId}
             className={`
               bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-md transition duration-200
               ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}
             `}
           >
-            Save Story
+            Save Project
+          </button>
+          <button
+            onClick={() => setIsProjectModalOpen(true)}
+            disabled={isLoading || !backendReady}
+            className={`
+              bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-md transition duration-200
+              ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}
+            `}
+          >
+            Load Project
           </button>
         </div>
       </div>
@@ -736,20 +853,11 @@ function App() {
             >
               {isSuggesting ? 'Thinking...' : 'Setting Detail'}
             </button>
-            {aiSuggestion && (
-              <div className="bg-gray-700 p-3 rounded-md text-sm text-gray-200 mt-4 break-words">
+           {aiSuggestion && (
+              <div className="bg-gray-700 p-3 rounded-md text-sm text-gray-200 mt-4 break-words max-h-48 overflow-y-auto"> {/* NEW: max-h-48 overflow-y-auto */}
                 <p className="font-semibold text-blue-300 mb-1">AI Suggestion:</p>
                 <p>{aiSuggestion}</p>
-                <button
-                  onClick={() => setStoryText(prev => prev + "\n\n" + aiSuggestion)}
-                  className="mt-2 text-xs bg-blue-500 hover:bg-blue-600 px-2 py-1 rounded-md"
-                >
-                  Insert into Story
-                </button>
               </div>
-            )}
-            {!aiSuggestion && !isSuggesting && (
-              <p className="text-sm text-gray-400 mt-4">Suggestions will appear here.</p>
             )}
           </div>
         </CollapsiblePanel>
@@ -793,9 +901,11 @@ function App() {
             )}
             <button
               onClick={() => setIsCharacterModalOpen(true)}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition duration-200"
+              disabled={!activeProjectId} // NEW: Disable if no active project
+              className={`w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition duration-200
+                ${!activeProjectId ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              Manage Characters
+              Add Characters
             </button>
           </div>
         </CollapsiblePanel>
@@ -839,9 +949,11 @@ function App() {
             )}
             <button
               onClick={() => setIsPlotPointModalOpen(true)}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition duration-200"
+              disabled={!activeProjectId}
+              className={`w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md transition duration-200
+                ${!activeProjectId ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              Manage Plot Points
+              Add Plot Points
             </button>
           </div>
         </CollapsiblePanel>
@@ -931,6 +1043,65 @@ function App() {
             </button>
           </div>
         </form>
+      </ManageModal>
+
+
+      {/* Project Management Modal */}
+      <ManageModal
+        isOpen={isProjectModalOpen}
+        onClose={() => setIsProjectModalOpen(false)}
+        title="Manage Projects"
+      >
+        <div className="space-y-4">
+          <h4 className="text-lg font-semibold text-gray-300 mb-2">Create New Project</h4>
+          <form onSubmit={(e) => { e.preventDefault(); handleCreateProject(); }} className="flex space-x-2">
+            <input
+              type="text"
+              className="flex-grow p-2 bg-gray-700 text-gray-100 rounded-md"
+              placeholder="New Project Title"
+              value={newProjectTitle}
+              onChange={(e) => setNewProjectTitle(e.target.value)}
+              required
+            />
+            <button type="submit" className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md">
+              Create
+            </button>
+          </form>
+
+          <h4 className="text-lg font-semibold text-gray-300 mt-6 mb-2">Load / Delete Projects</h4>
+          {availableProjects.length === 0 ? (
+            <p className="text-sm text-gray-400">No projects found. Create one above!</p>
+          ) : (
+            <ul className="space-y-2 max-h-60 overflow-y-auto pr-2">
+              {availableProjects.map(project => (
+                <li key={project.id} className="flex items-center justify-between bg-gray-700 p-2 rounded-md">
+                  <div className="flex flex-col">
+                    <span className="text-gray-200 text-sm font-medium">{project.title}</span>
+                    {project.last_modified && (
+                      <span className="text-gray-400 text-xs">Last modified: {new Date(project.last_modified).toLocaleString()}</span>
+                    )}
+                  </div>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => handleLoadProject(project.id)}
+                      className="text-blue-400 hover:text-blue-200 text-sm"
+                      disabled={activeProjectId === project.id}
+                    >
+                      {activeProjectId === project.id ? "Loaded" : "Load"}
+                    </button>
+                    <button
+                      onClick={() => handleDeleteProject(project.id)}
+                      className="text-red-400 hover:text-red-200 text-sm"
+                      disabled={activeProjectId === project.id}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </ManageModal>
     </div>
   );
