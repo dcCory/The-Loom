@@ -28,3 +28,6 @@ Thumbs.db # Windows
 
 # Logs
 *.log
+
+# Data files for storing characters, plots, and story
+backend/data
