@@ -80,6 +80,6 @@ echo "Returning to project root directory..."
 cd ..
 
 echo ""
-echo "--- Installation Complete! 🎉 ---"
+echo "--- Installation Complete!  ---"
 echo "Your backend (CPU-only) and frontend have been set up."
 echo "Welcome to The Loom! Check out the README and user_manual to get started!"

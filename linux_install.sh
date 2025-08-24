@@ -87,5 +87,5 @@ npm run build
 echo "Returning to project root directory..."
 cd ..
 
-echo "Installation complete! 🎉"
+echo "Installation complete!"
 echo "Welcome to The Loom! Check out the README and user_manual to get started!"

@@ -8,7 +8,7 @@ const CollapsiblePanel = ({ title, children, defaultOpen = true, position = 'lef
     setIsOpen(!isOpen);
   };
 
-  // Determine alignment for the title and button based on position
+  // Determines alignment for the title and button based on position
   const titleAlignmentClass = position === 'left' ? 'justify-between' : 'justify-between flex-row-reverse';
   const chevronIcon = isOpen ? '▼' : '▶'; // Basic text icons
 
@@ -20,12 +20,12 @@ const CollapsiblePanel = ({ title, children, defaultOpen = true, position = 'lef
       ${position === 'left' ? 'mr-4' : 'ml-4'}
     `}>
       <div className={`flex items-center cursor-pointer ${titleAlignmentClass}`} onClick={togglePanel}>
-        {/* Only show full title if panel is open, otherwise just a hint */}
+        {/* Only shows full title if panel is open, otherwise just a hint */}
         {isOpen ? (
           <h3 className="text-lg font-semibold text-gray-200 whitespace-nowrap">{title}</h3>
         ) : (
           <h3 className="text-lg font-semibold text-gray-200 writing-mode-vertical-rl rotate-180 whitespace-nowrap">
-            {title.split('').join('\n')} {/* Stack letters vertically */}
+            {title.split('').join('\n')} {/* Stacks letters vertically */}
           </h3>
         )}
         <button

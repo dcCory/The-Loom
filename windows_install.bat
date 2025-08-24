@@ -1,5 +1,5 @@
 @echo off
-REM 
+
 setlocal enableDelayedExpansion
 
 REM --- Initialize Variables ---
@@ -148,7 +148,7 @@ cd ..
 
 REM --- Installation Complete ---
 echo.
-echo Installation complete! 🎉
+echo Installation complete!
 echo Welcome to The Loom! Check out the README and user_manual to get started!
 
 REM End delayed expansion and exit the script successfully

@@ -1,7 +1,0 @@
-fastapi==0.111.0
-uvicorn[standard]==0.30.1
-transformers==4.41.2
-torch==2.7.1 # Adjust based on your system (e.g., torch==2.3.1+cu121 for CUDA 12.1)
-exllamav2 # Or the latest stable version. This requires specific GPU setup.
-# # If you prefer llama-cpp-python for GGUF models, use:
-# # llama-cpp-python==0.2.70 # Or the latest stable version. Check installation instructions for your OS/GPU.
