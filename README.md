@@ -36,7 +36,7 @@ To get The Loom up and running, you'll need to set up both the backend (Python) 
 1.  **Clone the Repository:**
 
     ```
-    git clone git@github.com:dcCory/The-Loom.git # Or use HTTPS: [https://github.com/dcCory/The-Loom.git](https://github.com/dcCory/The-Loom.
+    git clone https://github.com/dcCory/The-Loom
     cd The-Loom
     ```
 
