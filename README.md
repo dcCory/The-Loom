@@ -1,4 +1,4 @@
-# The Loom: Your Local AI-Assisted Writing Environment ✍️🤖
+# The Loom: Your Local AI-Assisted Writing Environment
 
 ## Project Overview
 
@@ -17,7 +17,7 @@
 
 ---
 
-## Installation Guide 🛠️
+## Installation Guide
 
 To get The Loom up and running, you'll need to set up both the backend (Python) and frontend (Node.js/React).
 
@@ -54,7 +54,7 @@ To get The Loom up and running, you'll need to set up both the backend (Python) 
 
 ---
 
-## Running the Application ▶️
+## Running the Application
 
 Once installed, you can start both the backend and frontend servers with one of the included start scripts:
     Windows: windows_start.bat
